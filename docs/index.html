@@ -35,6 +35,9 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
 .contacts a.phone{border-color:var(--acc);color:var(--acc)}
 .contacts a.ch{color:var(--warn);border-color:var(--warn)}
 .addr{color:var(--mut);font-size:12px;margin-top:5px}
+.weak{margin-top:7px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.wchip{font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(217,119,6,.12);color:var(--warn);border:1px solid rgba(217,119,6,.35)}
+.wchip.ok{background:rgba(22,163,74,.12);color:var(--ok);border-color:rgba(22,163,74,.35)}
 .draftbox{margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
 .draftbox textarea{width:100%;min-height:150px;font:12.5px/1.5 ui-monospace,monospace;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:vertical}
 .draftbox .subj{font-weight:600;margin-bottom:6px}
@@ -157,6 +160,8 @@ function filtered(){
   });
 }
 
+const ISSUE = {mobile:"Not mobile-friendly", https:"No HTTPS (insecure)", outdated:"Not updated in years",
+  slow:"Slow / heavy to load", dated_build:"Dated design/builder", generic:"Could convert better", unreached:"Site didn't respond"};
 function leadRow(l){
   const chans = Object.entries(l.channels||{}).map(([k,v]) =>
     `<a class="ch" href="${esc((CH_URL[k]||(x=>x))(v))}" target="_blank" rel="noopener">${k}</a>`).join("");
@@ -169,6 +174,7 @@ function leadRow(l){
       ${l.email_ok?`<span class="pill" style="color:var(--ok)">✓ deliverable</span>`:""}
       ${l.campaign?`<span class="pill" style="color:var(--ok);border:1px solid var(--ok)">campaign-ready</span>`:""}
     </div>
+    ${l.seg==="site" && l.issues ? `<div class="weak"><span class="mut">site weaknesses:</span>${(l.issues.length===1&&l.issues[0]==="generic")?`<span class="wchip ok">Modern enough, sell an upgrade</span>`:l.issues.map(i=>`<span class="wchip">${ISSUE[i]||i}</span>`).join("")}</div>`:""}
     <div class="contacts">
       ${l.email ? `<a class="email" href="mailto:${esc(l.email)}">✉ ${esc(l.email)}</a>`:""}
       ${l.phone ? `<a class="phone" href="tel:${esc(l.phone.replace(/\s/g,''))}">☎ ${esc(l.phone)}</a>`:""}
