@@ -63,12 +63,11 @@ def bbox(region):
 
 
 def overpass(s, w, n, e):
-    q = f"""[out:json][timeout:120];
+    q = f"""[out:json][timeout:150];
 (
- node["office"="estate_agent"]({s},{w},{n},{e});
- way["office"="estate_agent"]({s},{w},{n},{e});
- node["shop"="estate_agent"]({s},{w},{n},{e});
- way["shop"="estate_agent"]({s},{w},{n},{e});
+ nwr["office"="estate_agent"]({s},{w},{n},{e});
+ nwr["shop"="estate_agent"]({s},{w},{n},{e});
+ nwr["office"="property_management"]({s},{w},{n},{e});
 );
 out center tags;"""
     body = http(OVERPASS, data=urllib.parse.urlencode({"data": q}).encode(), timeout=180)
@@ -97,28 +96,47 @@ def first(t, *keys):
     return ""
 
 
+# A "website" that is really just a social/link page is NOT a proper site -> still a build-from-scratch lead.
+SOCIAL_HOSTS = ("facebook.", "fb.com", "fb.me", "instagram.", "linktr.ee", "linktree", "wa.me",
+                "t.me", "twitter.", "x.com", "tiktok.", "wixsite.com", "wordpress.com", "blogspot.",
+                "business.site", "sites.google.", "carrd.co", "beacons.ai", "bit.ly", "google.com/maps")
+
+
+def _host(u):
+    m = re.match(r"https?://([^/]+)", u.strip(), re.I)
+    return (m.group(1).lower() if m else u.lower())
+
+
 def to_lead(el, region, country):
     t = el.get("tags", {})
-    if first(t, "website", "contact:website", "url"):
-        return None  # only keep agents WITHOUT a website
     name = first(t, "name", "brand", "operator")
     if not name:
         return None
+    website = first(t, "website", "contact:website", "url")
+    social_site = website and any(s in _host(website) for s in SOCIAL_HOSTS)
+    seg = "site" if (website and not social_site) else "nosite"   # site=has real website (redesign), nosite=build
     channels = {c: first(t, *tags) for c, tags in CHANNEL_TAGS.items()}
     channels = {c: v for c, v in channels.items() if v}
-    addr = " ".join(x for x in (first(t, "addr:housenumber"), first(t, "addr:street"),
-                                first(t, "addr:city"), first(t, "addr:postcode")) if x)
+    if social_site:  # fold the social "website" into channels as its network
+        for c in CHANNEL_TAGS:
+            if c in _host(website):
+                channels.setdefault(c, website)
     email = first(t, "email", "contact:email")
     phone = first(t, "phone", "contact:phone", "contact:mobile")
-    if not (email or phone or channels):
-        return None  # a name with no way to reach it is not a usable lead
+    if seg == "nosite" and not (email or phone or channels):
+        return None  # a no-site name with no way to reach it is not a usable lead
+    addr = " ".join(x for x in (first(t, "addr:housenumber"), first(t, "addr:street"),
+                                first(t, "addr:city"), first(t, "addr:postcode")) if x)
     lat = el.get("lat") or (el.get("center") or {}).get("lat")
     lon = el.get("lon") or (el.get("center") or {}).get("lon")
     return {
         "id": f"{el['type']}/{el['id']}",
         "name": name,
         "brand": first(t, "brand", "operator"),
+        "seg": seg,
+        "web": website if seg == "site" else "",
         "email": email,
+        "email_src": "osm" if email else "",
         "phone": phone,
         "region": region,
         "country": country,
@@ -128,6 +146,56 @@ def to_lead(el, region, country):
         "lat": lat, "lon": lon,
         "first": TODAY,
     }
+
+
+# ---------- email enrichment (scrape has-website leads' sites for a contact email) ----------
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+BAD_EMAIL = ("example.", "sentry", "wixpress", "@2x", "noreply", "no-reply", ".png", ".jpg",
+             ".gif", ".svg", "@sentry", "godaddy", "@email", "yourdomain", "domain.com")
+CONTACT_PATHS = ("", "/contact", "/contact-us", "/contact.html", "/about", "/about-us")
+ENRICH_BATCH = int(os.environ.get("LS_ENRICH", "60"))
+
+
+def _good_email(e):
+    e = e.lower()
+    return not any(b in e for b in BAD_EMAIL) and not re.fullmatch(r"[0-9a-f]{20,}@.*", e)
+
+
+def scrape_email(site):
+    root = re.match(r"(https?://[^/]+)", site)
+    root = root.group(1) if root else site
+    dom = _host(site).split(":")[0].replace("www.", "")
+    for path in CONTACT_PATHS:
+        body = http(root + path, timeout=12, tries=1)
+        if not body:
+            continue
+        html = body.decode("utf-8", "ignore")
+        found = [e for e in EMAIL_RE.findall(html) if _good_email(e)]
+        if found:
+            same = [e for e in found if dom in e.lower()]          # prefer an email on the site's own domain
+            role = [e for e in (same or found) if e.lower().split("@")[0] in
+                    ("info", "contact", "sales", "hello", "enquiries", "enquiry", "admin", "office", "mail")]
+            return (role or same or found)[0]
+    return None
+
+
+def enrich_sites(state):
+    """For a batch of has-website leads with no email yet, scrape their site for a contact email."""
+    todo = [ld for ld in state["leads"].values()
+            if ld.get("seg") == "site" and not ld.get("email") and ld.get("email_src") != "tried"]
+    todo = todo[:ENRICH_BATCH]
+    if not todo:
+        return 0
+    got = 0
+    with ThreadPoolExecutor(10) as ex:
+        for ld, em in zip(todo, ex.map(lambda l: scrape_email(l["web"]), todo)):
+            if em:
+                ld["email"], ld["email_src"] = em, "scraped"
+                got += 1
+            else:
+                ld["email_src"] = "tried"  # don't refetch every run
+    print(f"[+] enriched {got}/{len(todo)} site leads with an email")
+    return got
 
 
 def scan_region(region):
@@ -165,6 +233,8 @@ def main():
             state["leads"][ld["id"]] = ld
         state["done"][region] = TODAY
 
+    enrich_sites(state)  # scrape a batch of has-website leads for emails
+
     leads = list(state["leads"].values())
     leads.sort(key=lambda x: (x["country"], x["city"], x["name"]))
     by_country = {}
@@ -173,6 +243,8 @@ def main():
     save(OUT, {
         "updated": NOW.isoformat(timespec="minutes"),
         "count": len(leads),
+        "nosite": sum(1 for x in leads if x["seg"] == "nosite"),
+        "site": sum(1 for x in leads if x["seg"] == "site"),
         "with_email": sum(1 for x in leads if x["email"]),
         "with_channel": sum(1 for x in leads if x["channels"]),
         "by_country": by_country,
@@ -181,8 +253,9 @@ def main():
         "leads": leads,
     })
     save(STATE, state)
-    print(f"[=] total leads {len(leads)} (+{new_count} new) | with email "
-          f"{sum(1 for x in leads if x['email'])} | regions done {len(state['done'])}/{len(regions)}")
+    print(f"[=] total {len(leads)} (+{new_count} new) | nosite {sum(1 for x in leads if x['seg']=='nosite')} "
+          f"| site {sum(1 for x in leads if x['seg']=='site')} | emails {sum(1 for x in leads if x['email'])} "
+          f"| regions {len(state['done'])}/{len(regions)}")
 
 
 if __name__ == "__main__":
