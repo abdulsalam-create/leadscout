@@ -1,0 +1,16 @@
+[
+ "London, United Kingdom", "Manchester, United Kingdom", "Birmingham, United Kingdom",
+ "Leeds, United Kingdom", "Glasgow, United Kingdom", "Liverpool, United Kingdom",
+ "Bristol, United Kingdom", "Edinburgh, United Kingdom", "Sheffield, United Kingdom",
+ "Nottingham, United Kingdom", "Cardiff, United Kingdom", "Newcastle, United Kingdom",
+ "New York, USA", "Los Angeles, USA", "Chicago, USA", "Houston, USA", "Phoenix, USA",
+ "Miami, USA", "Dallas, USA", "Atlanta, USA", "Seattle, USA", "Boston, USA",
+ "Denver, USA", "San Diego, USA", "Philadelphia, USA", "Washington DC, USA",
+ "Austin, USA", "San Francisco, USA", "Las Vegas, USA", "Orlando, USA",
+ "Toronto, Canada", "Vancouver, Canada", "Montreal, Canada", "Calgary, Canada", "Ottawa, Canada",
+ "Sydney, Australia", "Melbourne, Australia", "Brisbane, Australia", "Perth, Australia", "Adelaide, Australia",
+ "Dublin, Ireland", "Berlin, Germany", "Munich, Germany", "Hamburg, Germany", "Frankfurt, Germany",
+ "Paris, France", "Amsterdam, Netherlands", "Madrid, Spain", "Barcelona, Spain",
+ "Milan, Italy", "Rome, Italy", "Lisbon, Portugal", "Vienna, Austria", "Zurich, Switzerland",
+ "Stockholm, Sweden", "Copenhagen, Denmark", "Brussels, Belgium", "Oslo, Norway", "Helsinki, Finland"
+]

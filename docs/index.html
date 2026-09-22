@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>leadscout</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5e6772;--line:#e2e5ea;--acc:#2563eb;--ok:#16a34a;--warn:#d97706;--pill:#eef1f6}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a20;--fg:#e6e8eb;--mut:#9aa3ad;--line:#2a2f37;--acc:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--pill:#1e232c}}
+:root[data-theme=light]{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mut:#5e6772;--line:#e2e5ea;--acc:#2563eb;--ok:#16a34a;--warn:#d97706;--pill:#eef1f6}
+:root[data-theme=dark]{--bg:#0f1115;--card:#171a20;--fg:#e6e8eb;--mut:#9aa3ad;--line:#2a2f37;--acc:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--pill:#1e232c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1180px;margin:auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;justify-content:space-between}
+h1{font-size:20px;margin:0}h1 small{font-weight:400;color:var(--mut);font-size:13px}
+.mut{color:var(--mut)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:14px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.stat b{display:block;font-size:22px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+input,select{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
+input[type=search]{flex:1;min-width:180px}
+label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
+.btn{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:7px 12px;font:inherit}
+.btn.p{background:var(--acc);color:#fff;border-color:var(--acc)}
+.row{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:8px}
+.top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.name{font-weight:600;font-size:15px}
+.pill{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--pill);color:var(--mut)}
+.pill.brand{color:var(--acc)}
+.contacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.contacts a{display:inline-flex;gap:5px;align-items:center;text-decoration:none;font-size:12.5px;padding:3px 9px;border-radius:6px;border:1px solid var(--line);color:var(--fg)}
+.contacts a.email{border-color:var(--ok);color:var(--ok)}
+.contacts a.phone{border-color:var(--acc);color:var(--acc)}
+.contacts a.ch{color:var(--warn);border-color:var(--warn)}
+.addr{color:var(--mut);font-size:12px;margin-top:5px}
+.empty{padding:30px;text-align:center;color:var(--mut)}
+#more{display:block;margin:10px auto}#more[hidden]{display:none}
+.note{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:12px;color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>🏘️ leadscout <small>real-estate providers without a website</small></h1>
+  <span class="mut" id="meta">loading…</span>
+</header>
+
+<div class="stats" id="stats"></div>
+<div class="note" id="note"></div>
+
+<div class="bar">
+  <input type="search" id="q" placeholder="Search name, city, brand, phone, email…">
+  <select id="country"><option value="">All countries</option></select>
+  <select id="has">
+    <option value="">Any contact</option>
+    <option value="email">Has email</option>
+    <option value="phone">Has phone</option>
+    <option value="channel">Has a social channel</option>
+    <option value="emailable">Email or a channel</option>
+  </select>
+  <button class="btn p" id="csv">Export CSV</button>
+</div>
+
+<div id="out"></div>
+<button id="more" hidden class="btn">Show more</button>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const CH_URL = {
+  facebook: v => v.startsWith("http") ? v : "https://facebook.com/" + v,
+  instagram: v => v.startsWith("http") ? v : "https://instagram.com/" + v.replace(/^@/, ""),
+  whatsapp: v => "https://wa.me/" + v.replace(/[^0-9]/g, ""),
+  linkedin: v => v.startsWith("http") ? v : "https://linkedin.com/" + v,
+  twitter: v => v.startsWith("http") ? v : "https://twitter.com/" + v.replace(/^@/, ""),
+  tiktok: v => v.startsWith("http") ? v : "https://tiktok.com/@" + v.replace(/^@/, ""),
+  youtube: v => v.startsWith("http") ? v : "https://youtube.com/" + v,
+  telegram: v => v.startsWith("http") ? v : "https://t.me/" + v.replace(/^@/, ""),
+};
+let LEADS = [], limit = 60;
+
+async function init(){
+  let d;
+  try { d = await fetch("data/leads.json", { cache: "no-cache" }).then(r => r.json()); }
+  catch(e){ $("#meta").textContent = "failed to load data"; return; }
+  LEADS = d.leads || [];
+  $("#meta").textContent = `updated ${(d.updated||"").replace("T"," ")} UTC · ${d.regions_done}/${d.regions_total} cities scanned`;
+  $("#stats").innerHTML = [
+    ["leads (no website)", d.count], ["with email", d.with_email],
+    ["with a social channel", d.with_channel], ["countries", Object.keys(d.by_country||{}).length],
+  ].map(([l,n]) => `<div class="stat"><b>${(n||0).toLocaleString()}</b><span class="mut">${l}</span></div>`).join("");
+  $("#note").innerHTML = "These are real-estate agents/agencies with <b>no website</b> (your opportunity). "
+    + "Open data rarely includes an email for them, so most rows show a <b>phone or social channel</b> instead — "
+    + "that channel is itself how they advertise. Email enrichment is the next phase.";
+  const cs = Object.entries(d.by_country||{}).sort((a,b)=>b[1]-a[1]);
+  $("#country").innerHTML = '<option value="">All countries</option>' + cs.map(([c,n])=>`<option value="${esc(c)}">${esc(c)} (${n})</option>`).join("");
+  render();
+}
+
+function filtered(){
+  const q = $("#q").value.trim().toLowerCase(), c = $("#country").value, has = $("#has").value;
+  return LEADS.filter(l => {
+    if(c && l.country !== c) return false;
+    if(has === "email" && !l.email) return false;
+    if(has === "phone" && !l.phone) return false;
+    if(has === "channel" && !Object.keys(l.channels||{}).length) return false;
+    if(has === "emailable" && !l.email && !Object.keys(l.channels||{}).length) return false;
+    if(!q) return true;
+    return (l.name+" "+l.city+" "+l.country+" "+l.brand+" "+l.phone+" "+l.email+" "+Object.values(l.channels||{}).join(" ")).toLowerCase().includes(q);
+  });
+}
+
+function leadRow(l){
+  const chans = Object.entries(l.channels||{}).map(([k,v]) =>
+    `<a class="ch" href="${esc((CH_URL[k]||(x=>x))(v))}" target="_blank" rel="noopener">${k}</a>`).join("");
+  return `<div class="row"><div class="top">
+      <span class="name">${esc(l.name)}</span>
+      ${l.brand && l.brand!==l.name ? `<span class="pill brand">${esc(l.brand)}</span>`:""}
+      <span class="pill">${esc(l.city)}${l.country?", "+esc(l.country):""}</span>
+      ${!l.email && !Object.keys(l.channels||{}).length && l.phone ? `<span class="pill">phone only</span>`:""}
+    </div>
+    <div class="contacts">
+      ${l.email ? `<a class="email" href="mailto:${esc(l.email)}">✉ ${esc(l.email)}</a>`:""}
+      ${l.phone ? `<a class="phone" href="tel:${esc(l.phone.replace(/\s/g,''))}">☎ ${esc(l.phone)}</a>`:""}
+      ${chans}
+      ${l.lat ? `<a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}#map=18/${l.lat}/${l.lon}" target="_blank" rel="noopener">📍 map</a>`:""}
+    </div>
+    ${l.addr ? `<div class="addr">${esc(l.addr)}</div>`:""}</div>`;
+}
+
+function render(){
+  const ev = filtered();
+  $("#out").innerHTML = ev.slice(0, limit).map(leadRow).join("")
+    || `<div class="empty">No leads match. As more cities are scanned the list grows (see the counter up top).</div>`;
+  $("#more").hidden = ev.length <= limit;
+  $("#more").textContent = `Show more (${ev.length - limit} more)`;
+}
+
+function exportCSV(){
+  const rows = filtered();
+  const cols = ["name","brand","email","phone","city","country","addr","channels","map"];
+  const line = a => a.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(",");
+  const body = rows.map(l => line([l.name, l.brand, l.email, l.phone, l.city, l.country, l.addr,
+    Object.entries(l.channels||{}).map(([k,v])=>k+":"+v).join(" | "),
+    l.lat?`https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}`:""]));
+  const csv = [line(cols), ...body].join("\n");
+  const url = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+  const a = document.createElement("a"); a.href = url; a.download = `leadscout-${rows.length}-leads.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+["#q","#country","#has"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
+$("#more").onclick = () => { limit += 120; render(); };
+$("#csv").onclick = exportCSV;
+init();
+</script>
+</body>
+</html>
