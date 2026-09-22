@@ -53,6 +53,7 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
 <div class="bar">
   <input type="search" id="q" placeholder="Search name, city, brand, phone, email…">
   <select id="country"><option value="">All countries</option></select>
+  <select id="seg"><option value="">Both segments</option><option value="nosite">No website (build)</option><option value="site">Has website (redesign)</option></select>
   <select id="has">
     <option value="">Any contact</option>
     <option value="email">Has email</option>
@@ -89,12 +90,11 @@ async function init(){
   LEADS = d.leads || [];
   $("#meta").textContent = `updated ${(d.updated||"").replace("T"," ")} UTC · ${d.regions_done}/${d.regions_total} cities scanned`;
   $("#stats").innerHTML = [
-    ["leads (no website)", d.count], ["with email", d.with_email],
-    ["with a social channel", d.with_channel], ["countries", Object.keys(d.by_country||{}).length],
+    ["total leads", d.count], ["no website (build)", d.nosite], ["has website (redesign)", d.site],
+    ["with email", d.with_email], ["countries", Object.keys(d.by_country||{}).length],
   ].map(([l,n]) => `<div class="stat"><b>${(n||0).toLocaleString()}</b><span class="mut">${l}</span></div>`).join("");
-  $("#note").innerHTML = "These are real-estate agents/agencies with <b>no website</b> (your opportunity). "
-    + "Open data rarely includes an email for them, so most rows show a <b>phone or social channel</b> instead — "
-    + "that channel is itself how they advertise. Email enrichment is the next phase.";
+  $("#note").innerHTML = "Two lead types. <b>No website</b> = build-from-scratch pitch (reach them by phone or the channel they advertise on; emails are rare in open data). "
+    + "<b>Has website</b> = redesign/modernize pitch, and their site is scraped for a contact <b>email</b> so these are directly cold-emailable. Use the segment filter to switch.";
   const cs = Object.entries(d.by_country||{}).sort((a,b)=>b[1]-a[1]);
   $("#country").innerHTML = '<option value="">All countries</option>' + cs.map(([c,n])=>`<option value="${esc(c)}">${esc(c)} (${n})</option>`).join("");
   render();
@@ -102,7 +102,9 @@ async function init(){
 
 function filtered(){
   const q = $("#q").value.trim().toLowerCase(), c = $("#country").value, has = $("#has").value;
+  const seg = $("#seg").value;
   return LEADS.filter(l => {
+    if(seg && (l.seg||"nosite") !== seg) return false;
     if(c && l.country !== c) return false;
     if(has === "email" && !l.email) return false;
     if(has === "phone" && !l.phone) return false;
@@ -120,11 +122,13 @@ function leadRow(l){
       <span class="name">${esc(l.name)}</span>
       ${l.brand && l.brand!==l.name ? `<span class="pill brand">${esc(l.brand)}</span>`:""}
       <span class="pill">${esc(l.city)}${l.country?", "+esc(l.country):""}</span>
-      ${!l.email && !Object.keys(l.channels||{}).length && l.phone ? `<span class="pill">phone only</span>`:""}
+      <span class="pill" style="color:${l.seg==="site"?"var(--warn)":"var(--acc)"}">${l.seg==="site"?"has website · redesign":"no website · build"}</span>
+      ${l.email_src==="scraped"?`<span class="pill" style="color:var(--ok)">email scraped</span>`:""}
     </div>
     <div class="contacts">
       ${l.email ? `<a class="email" href="mailto:${esc(l.email)}">✉ ${esc(l.email)}</a>`:""}
       ${l.phone ? `<a class="phone" href="tel:${esc(l.phone.replace(/\s/g,''))}">☎ ${esc(l.phone)}</a>`:""}
+      ${l.web ? `<a href="${esc(l.web)}" target="_blank" rel="noopener">🌐 site</a>`:""}
       ${chans}
       ${l.lat ? `<a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}#map=18/${l.lat}/${l.lon}" target="_blank" rel="noopener">📍 map</a>`:""}
     </div>
@@ -141,9 +145,9 @@ function render(){
 
 function exportCSV(){
   const rows = filtered();
-  const cols = ["name","brand","email","phone","city","country","addr","channels","map"];
+  const cols = ["name","brand","segment","email","email_source","phone","website","city","country","addr","channels","map"];
   const line = a => a.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(",");
-  const body = rows.map(l => line([l.name, l.brand, l.email, l.phone, l.city, l.country, l.addr,
+  const body = rows.map(l => line([l.name, l.brand, l.seg, l.email, l.email_src, l.phone, l.web, l.city, l.country, l.addr,
     Object.entries(l.channels||{}).map(([k,v])=>k+":"+v).join(" | "),
     l.lat?`https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}`:""]));
   const csv = [line(cols), ...body].join("\n");
@@ -152,7 +156,7 @@ function exportCSV(){
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-["#q","#country","#has"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
+["#q","#country","#has","#seg"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
 $("#more").onclick = () => { limit += 120; render(); };
 $("#csv").onclick = exportCSV;
 init();
