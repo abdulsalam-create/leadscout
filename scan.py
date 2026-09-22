@@ -239,6 +239,74 @@ def has_mx(email):
         return False
 
 
+# ---------- prospect fit: favour small / starting-out agents; downrank big chains + pro sites ----------
+COMPANY_WORDS = {"estate", "estates", "property", "properties", "lettings", "letting", "homes", "home",
+                 "realty", "real", "group", "ltd", "limited", "llc", "inc", "associates", "partners",
+                 "sales", "management", "residential", "agency", "agents", "agent", "co", "company",
+                 "&", "and", "the", "international", "network", "services", "solutions",
+                 "agence", "cabinet", "immobilier", "immobiliere", "groupe", "inmobiliaria",
+                 "immobilien", "immobiliare", "imobiliaria", "makelaar", "makelaardij", "vastgoed",
+                 "gestion", "conseil", "transactions", "patrimoine",
+                 "gmbh", "sarl", "srl", "sas", "sa", "bv", "sl", "spa", "kg", "ug", "oü", "ohg",
+                 "la", "le", "les", "il", "el", "lo", "de", "du", "van", "von", "del", "della", "los"}
+BIG_BRANDS = {"foxtons", "connells", "savills", "knight frank", "winkworth", "hamptons", "chestertons",
+              "countrywide", "bairstow eves", "william h brown", "your move", "reeds rains", "haart",
+              "barnard marcus", "dexters", "chancellors", "leaders", "romans", "purplebricks", "kfh",
+              "kinleigh", "marsh & parsons", "strutt & parker", "carter jonas", "fine & country",
+              "jackson-stops", "john d wood", "belvoir", "martin & co", "hunters", "yopa", "openrent",
+              "century 21", "century21", "re/max", "remax", "keller williams", "coldwell banker",
+              "sotheby", "compass", "redfin", "berkshire hathaway", "douglas elliman", "exp realty",
+              "engel & völkers", "engel & volkers", "ray white", "lj hooker", "harcourts", "barfoot",
+              "royal lepage", "orpi", "laforêt", "laforet", "guy hoquet", "stéphane plaza", "stephane plaza",
+              "era immobilier", "nestenn", "iad", "foncia", "citya", "square habitat", "l'adresse",
+              "avis immobilier", "von poll", "tecnocasa", "don piso", "redpiso", "look & find",
+              "gabetti", "tecnorete", "grimaldi", "toscano", "remo", "century 21"}
+
+
+def is_person(name):
+    toks = [t for t in re.split(r"\s+", name.strip()) if t]
+    if not (2 <= len(toks) <= 3):
+        return False
+    if any(t.lower().strip(".,&") in COMPANY_WORDS for t in toks):
+        return False
+    return all(re.match(r"^[A-Z][a-zA-Z'’.-]+$", t) for t in toks)
+
+
+def prospect_fit(ld):
+    """0-100: how much this looks like a small / starting-out agent worth pitching."""
+    score, why = 0, []
+    name = ld.get("name", ""); brand = ld.get("brand", "")
+    blob = (name + " " + brand).lower()
+    seg = ld.get("seg")
+
+    if seg == "nosite":
+        score += 46; why.append("no website")
+    else:
+        iss = ld.get("issues") or []
+        if any(i in iss for i in ("mobile", "https", "outdated", "dated_build", "slow")):
+            score += 34; why.append("weak / dated site")
+        elif iss == ["generic"] or not iss:
+            score -= 12; why.append("already a solid site")
+
+    if any(b in blob for b in BIG_BRANDS):
+        score -= 55; why.append("major brand")
+    elif brand:
+        score -= 26; why.append("part of a chain")
+    elif is_person(name):
+        score += 30; why.append("individual agent")
+    else:
+        score += 12; why.append("small independent")
+
+    if ld.get("email"):
+        score += 8
+    if ld.get("channels"):
+        score += 6; why.append("advertises on social")
+
+    ld["fit"] = max(0, min(100, score))
+    ld["fit_why"] = why
+    ld["prospect"] = ld["fit"] >= 55
+
+
 def enrich_sites(state):
     """Batch: scrape has-website leads for email + assess site quality; verify email deliverability."""
     todo = [ld for ld in state["leads"].values()
@@ -304,7 +372,9 @@ def main():
     enrich_sites(state)  # scrape a batch of has-website leads for emails
 
     leads = list(state["leads"].values())
-    leads.sort(key=lambda x: (x["country"], x["city"], x["name"]))
+    for ld in leads:
+        prospect_fit(ld)  # recomputed every run (cheap, no network)
+    leads.sort(key=lambda x: (-x.get("fit", 0), x["country"], x["city"], x["name"]))
     by_country = {}
     for ld in leads:
         by_country[ld["country"]] = by_country.get(ld["country"], 0) + 1
@@ -316,6 +386,7 @@ def main():
         "with_email": sum(1 for x in leads if x["email"]),
         "verified": sum(1 for x in leads if x.get("email_ok")),
         "campaign": sum(1 for x in leads if x.get("campaign")),
+        "prospects": sum(1 for x in leads if x.get("prospect")),
         "with_channel": sum(1 for x in leads if x["channels"]),
         "by_country": by_country,
         "regions_done": len(state["done"]),

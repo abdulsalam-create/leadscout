@@ -69,6 +69,7 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
     <option value="channel">Has a social channel</option>
     <option value="emailable">Email or a channel</option>
   </select>
+  <label class="ck"><input type="checkbox" id="best" checked> Best-fit prospects only</label>
   <button class="btn p" id="csv">Export CSV</button>
 </div>
 
@@ -133,12 +134,11 @@ async function init(){
   LEADS = d.leads || [];
   $("#meta").textContent = `updated ${(d.updated||"").replace("T"," ")} UTC · ${d.regions_done}/${d.regions_total} cities scanned`;
   $("#stats").innerHTML = [
-    ["total leads", d.count], ["has website (redesign)", d.site], ["no website (build)", d.nosite],
-    ["emails found", d.with_email], ["deliverable (MX ok)", d.verified], ["campaign-ready", d.campaign],
+    ["best-fit prospects", d.prospects||0], ["total leads", d.count], ["no website", d.nosite],
+    ["emails found", d.with_email], ["deliverable (MX)", d.verified], ["campaign-ready", d.campaign],
   ].map(([l,n]) => `<div class="stat"><b>${(n||0).toLocaleString()}</b><span class="mut">${l}</span></div>`).join("");
-  $("#note").innerHTML = "<b>Campaign-ready</b> leads have a deliverable email and are in a country where cold B2B email is defensible (UK, US, Ireland, Australia, Netherlands). "
-    + "Each has-website lead is scored for how much it needs a redesign, with a specific hook, a localized draft email, and a personalized demo link. "
-    + "Germany/Austria/Canada and phone-only leads are kept out of the email campaign (call or other channel).";
+  $("#note").innerHTML = "Sorted by <b>prospect fit</b>: small / starting-out agents (no website, or a weak DIY site, and not part of a big chain) rank highest, because they are the easiest to win. "
+    + "Established brands and agencies with solid professional sites are pushed to the bottom. Turn on <b>Best-fit prospects only</b> to hide the rest.";
   const cs = Object.entries(d.by_country||{}).sort((a,b)=>b[1]-a[1]);
   $("#country").innerHTML = '<option value="">All countries</option>' + cs.map(([c,n])=>`<option value="${esc(c)}">${esc(c)} (${n})</option>`).join("");
   render();
@@ -146,8 +146,9 @@ async function init(){
 
 function filtered(){
   const q = $("#q").value.trim().toLowerCase(), c = $("#country").value, has = $("#has").value;
-  const seg = $("#seg").value;
+  const seg = $("#seg").value, best = $("#best").checked;
   return LEADS.filter(l => {
+    if(best && !l.prospect) return false;
     if(seg && (l.seg||"nosite") !== seg) return false;
     if(c && l.country !== c) return false;
     if(has === "email" && !l.email) return false;
@@ -169,6 +170,7 @@ function leadRow(l){
       <span class="name">${esc(l.name)}</span>
       ${l.brand && l.brand!==l.name ? `<span class="pill brand">${esc(l.brand)}</span>`:""}
       <span class="pill">${esc(l.city)}${l.country?", "+esc(l.country):""}</span>
+      ${l.fit!=null?`<span class="pill" style="color:${l.fit>=70?"var(--ok)":l.fit>=55?"var(--acc)":"var(--mut)"};border:1px solid ${l.fit>=55?"currentColor":"var(--line)"}" title="prospect fit: ${(l.fit_why||[]).join(', ')}">fit ${l.fit}</span>`:""}
       <span class="pill" style="color:${l.seg==="site"?"var(--warn)":"var(--acc)"}">${l.seg==="site"?"redesign":"build"}</span>
       ${l.qscore?`<span class="pill" title="redesign-worthiness">score ${l.qscore}</span>`:""}
       ${l.email_ok?`<span class="pill" style="color:var(--ok)">✓ deliverable</span>`:""}
@@ -198,9 +200,9 @@ function render(){
 
 function exportCSV(){
   const rows = filtered();
-  const cols = ["name","brand","segment","email","email_source","phone","website","city","country","addr","channels","map"];
+  const cols = ["fit","fit_reasons","name","brand","segment","email","email_source","phone","website","city","country","addr","channels","map"];
   const line = a => a.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(",");
-  const body = rows.map(l => line([l.name, l.brand, l.seg, l.email, l.email_src, l.phone, l.web, l.city, l.country, l.addr,
+  const body = rows.map(l => line([l.fit, (l.fit_why||[]).join("; "), l.name, l.brand, l.seg, l.email, l.email_src, l.phone, l.web, l.city, l.country, l.addr,
     Object.entries(l.channels||{}).map(([k,v])=>k+":"+v).join(" | "),
     l.lat?`https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}`:""]));
   const csv = [line(cols), ...body].join("\n");
@@ -209,7 +211,7 @@ function exportCSV(){
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-["#q","#country","#has","#seg"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
+["#q","#country","#has","#seg","#best"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
 $("#more").onclick = () => { limit += 120; render(); };
 $("#csv").onclick = exportCSV;
 
