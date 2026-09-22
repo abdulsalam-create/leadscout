@@ -161,40 +161,108 @@ def _good_email(e):
     return not any(b in e for b in BAD_EMAIL) and not re.fullmatch(r"[0-9a-f]{20,}@.*", e)
 
 
-def scrape_email(site):
+# Country -> language for localized outreach (falls back to English).
+LANG = {"Germany": "de", "Austria": "de", "Switzerland": "de", "France": "fr", "Belgium": "fr",
+        "Spain": "es", "Italy": "it", "Netherlands": "nl", "Portugal": "pt"}
+# Where cold B2B email is defensible (opt-out regimes). Germany/Austria (strict), Canada (CASL),
+# France/Spain/Italy (stricter GDPR/ePrivacy) are deliberately excluded from the auto-campaign.
+CAMPAIGN_OK = {"United Kingdom", "USA", "Ireland", "Australia", "Netherlands"}
+
+
+def assess_site(site):
+    """Fetch a lead's site: return (email, signals). Signals drive the redesign hook + score."""
     root = re.match(r"(https?://[^/]+)", site)
     root = root.group(1) if root else site
     dom = _host(site).split(":")[0].replace("www.", "")
-    for path in CONTACT_PATHS:
+    sig = {"https": site.lower().startswith("https"), "mobile": True, "year": None,
+           "stack": "", "heavy": False, "reached": False}
+    email = None
+    for i, path in enumerate(CONTACT_PATHS):
         body = http(root + path, timeout=12, tries=1)
         if not body:
             continue
+        sig["reached"] = True
         html = body.decode("utf-8", "ignore")
-        found = [e for e in EMAIL_RE.findall(html) if _good_email(e)]
-        if found:
-            same = [e for e in found if dom in e.lower()]          # prefer an email on the site's own domain
-            role = [e for e in (same or found) if e.lower().split("@")[0] in
-                    ("info", "contact", "sales", "hello", "enquiries", "enquiry", "admin", "office", "mail")]
-            return (role or same or found)[0]
-    return None
+        if i == 0:  # assess the homepage
+            low = html.lower()
+            sig["mobile"] = 'name="viewport"' in low or "name='viewport'" in low
+            sig["heavy"] = len(body) > 1_800_000
+            yrs = [int(y) for y in re.findall(r"(?:©|&copy;|copyright)[^\d]{0,12}(20\d\d)", html, re.I)]
+            sig["year"] = max(yrs) if yrs else None
+            if "wp-content" in low or "wordpress" in low:
+                sig["stack"] = "wordpress"
+            elif "wixsite" in low or "wix.com" in low:
+                sig["stack"] = "wix"
+            elif re.search(r"<table[^>]", low) and "grid" not in low and "flex" not in low:
+                sig["stack"] = "table-layout"
+        if not email:
+            found = [e for e in EMAIL_RE.findall(html) if _good_email(e)]
+            if found:
+                same = [e for e in found if dom in e.lower()]
+                role = [e for e in (same or found) if e.lower().split("@")[0] in
+                        ("info", "contact", "sales", "hello", "enquiries", "enquiry", "admin", "office", "mail")]
+                email = (role or same or found)[0]
+        if email and i == 0:
+            break  # got homepage signals + an email; no need for contact pages
+    return email, sig
+
+
+def site_score(sig):
+    """0-100 redesign-worthiness + the single strongest hook code + issue list."""
+    issues, score = [], 0
+    if not sig.get("mobile"):
+        issues.append("mobile"); score += 40
+    if not sig.get("https"):
+        issues.append("https"); score += 30
+    yr = sig.get("year")
+    if yr and yr <= NOW.year - 4:
+        issues.append("outdated"); score += 25
+    if sig.get("stack") in ("wix", "table-layout"):
+        issues.append("dated_build"); score += 15
+    if sig.get("heavy"):
+        issues.append("slow"); score += 10
+    if not issues:
+        issues.append("generic"); score = 20
+    order = ["mobile", "https", "outdated", "slow", "dated_build", "generic"]
+    hook = min(issues, key=lambda x: order.index(x) if x in order else 9)
+    return min(score, 100), hook, issues
+
+
+def has_mx(email):
+    """Deliverability check via DNS-over-HTTPS: does the email's domain accept mail?"""
+    dom = email.split("@")[-1]
+    try:
+        body = http(f"https://dns.google/resolve?name={urllib.parse.quote(dom)}&type=MX", timeout=12, tries=1)
+        d = json.loads(body)
+        return any(a.get("type") == 15 for a in d.get("Answer", []))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def enrich_sites(state):
-    """For a batch of has-website leads with no email yet, scrape their site for a contact email."""
+    """Batch: scrape has-website leads for email + assess site quality; verify email deliverability."""
     todo = [ld for ld in state["leads"].values()
-            if ld.get("seg") == "site" and not ld.get("email") and ld.get("email_src") != "tried"]
+            if ld.get("seg") == "site" and ld.get("email_src") != "tried" and not ld.get("qscore")]
     todo = todo[:ENRICH_BATCH]
     if not todo:
         return 0
     got = 0
     with ThreadPoolExecutor(10) as ex:
-        for ld, em in zip(todo, ex.map(lambda l: scrape_email(l["web"]), todo)):
-            if em:
-                ld["email"], ld["email_src"] = em, "scraped"
-                got += 1
-            else:
-                ld["email_src"] = "tried"  # don't refetch every run
-    print(f"[+] enriched {got}/{len(todo)} site leads with an email")
+        results = list(ex.map(lambda l: (l, *assess_site(l["web"])), todo))
+    for ld, email, sig in results:
+        score, hook, issues = site_score(sig)
+        ld["qscore"], ld["hook"], ld["issues"] = score, hook, issues
+        ld["lang"] = LANG.get(ld["country"], "en")
+        if email and not ld.get("email"):
+            ld["email"], ld["email_src"] = email, "scraped"
+            got += 1
+        if not ld.get("email"):
+            ld["email_src"] = "tried"
+        # deliverability + campaign eligibility
+        ld["email_ok"] = bool(ld.get("email")) and has_mx(ld["email"])
+        ld["campaign"] = bool(ld["email_ok"] and ld["country"] in CAMPAIGN_OK)
+    print(f"[+] assessed {len(todo)} sites | {got} new emails | "
+          f"{sum(1 for l,_ ,_ in results if l.get('campaign'))} campaign-ready")
     return got
 
 
@@ -246,6 +314,8 @@ def main():
         "nosite": sum(1 for x in leads if x["seg"] == "nosite"),
         "site": sum(1 for x in leads if x["seg"] == "site"),
         "with_email": sum(1 for x in leads if x["email"]),
+        "verified": sum(1 for x in leads if x.get("email_ok")),
+        "campaign": sum(1 for x in leads if x.get("campaign")),
         "with_channel": sum(1 for x in leads if x["channels"]),
         "by_country": by_country,
         "regions_done": len(state["done"]),

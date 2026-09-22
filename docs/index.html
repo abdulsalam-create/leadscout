@@ -35,6 +35,10 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
 .contacts a.phone{border-color:var(--acc);color:var(--acc)}
 .contacts a.ch{color:var(--warn);border-color:var(--warn)}
 .addr{color:var(--mut);font-size:12px;margin-top:5px}
+.draftbox{margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+.draftbox textarea{width:100%;min-height:150px;font:12.5px/1.5 ui-monospace,monospace;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:vertical}
+.draftbox .subj{font-weight:600;margin-bottom:6px}
+.draftbox .acts{display:flex;gap:8px;margin-top:7px;flex-wrap:wrap}
 .empty{padding:30px;text-align:center;color:var(--mut)}
 #more{display:block;margin:10px auto}#more[hidden]{display:none}
 .note{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:12px;color:var(--mut);font-size:13px}
@@ -58,6 +62,7 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
     <option value="">Any contact</option>
     <option value="email">Has email</option>
     <option value="phone">Has phone</option>
+    <option value="campaign">Campaign-ready (email + legal)</option>
     <option value="channel">Has a social channel</option>
     <option value="emailable">Email or a channel</option>
   </select>
@@ -81,6 +86,41 @@ const CH_URL = {
   youtube: v => v.startsWith("http") ? v : "https://youtube.com/" + v,
   telegram: v => v.startsWith("http") ? v : "https://t.me/" + v.replace(/^@/, ""),
 };
+function demoLink(l){
+  const base = location.origin + location.pathname.replace(/[^/]*$/, "") + "demo.html";
+  const q = new URLSearchParams({ name: l.name || "", city: l.city || "", phone: l.phone || "", addr: l.addr || "" });
+  return base + "?" + q.toString();
+}
+// Localized cold-email templates. {name} {city} {hook} {demo} are filled per lead. Each ends with an opt-out line.
+const DRAFTS = {
+  en:{s:"A quick idea for {name}'s website",
+    b:"Hi {name} team,\n\nI came across {name} while looking at estate agents in {city}, and I noticed {hook}.\n\nI put together a free concept preview of how a modern, mobile-first site could look for you:\n{demo}\n\nIf it's useful, I'd love to build the real thing. Happy to send more examples or jump on a quick call.\n\nBest,\n[Your Name]\n\nNot interested? Just reply 'no thanks' and I won't follow up.",
+    h:{mobile:"your site isn't mobile-friendly, and most property searches now happen on phones",https:"your site isn't secure (no HTTPS), which browsers now flag to visitors",outdated:"your site looks like it hasn't been updated in a few years",slow:"your site loads slowly, which loses visitors before they enquire",dated_build:"your site's design looks dated next to competitors",generic:"a more modern site could turn more of your visitors into enquiries"}},
+  de:{s:"Eine kurze Idee fuer die Website von {name}",
+    b:"Hallo Team von {name},\n\nich bin auf {name} gestossen, als ich mir Immobilienmakler in {city} angesehen habe, und mir ist aufgefallen, dass {hook}.\n\nIch habe eine kostenlose Konzeptvorschau erstellt, wie eine moderne, mobil-optimierte Website fuer Sie aussehen koennte:\n{demo}\n\nWenn es Ihnen gefaellt, wuerde ich die echte Seite gerne umsetzen. Ich sende gern weitere Beispiele oder wir sprechen kurz.\n\nBeste Gruesse,\n[Ihr Name]\n\nKein Interesse? Antworten Sie einfach mit 'nein danke'.",
+    h:{mobile:"Ihre Website nicht fuer Mobilgeraete optimiert ist, obwohl die meisten Immobiliensuchen heute mobil stattfinden",https:"Ihre Website nicht sicher ist (kein HTTPS), was Browser den Besuchern anzeigen",outdated:"Ihre Website seit einigen Jahren nicht aktualisiert wurde",slow:"Ihre Website langsam laedt und dadurch Besucher verliert",dated_build:"das Design Ihrer Website im Vergleich zur Konkurrenz veraltet wirkt",generic:"eine modernere Website mehr Besucher zu Anfragen machen koennte"}},
+  fr:{s:"Une idee rapide pour le site de {name}",
+    b:"Bonjour l'equipe de {name},\n\nj'ai decouvert {name} en regardant les agences immobilieres a {city}, et j'ai remarque que {hook}.\n\nJ'ai prepare un apercu gratuit de ce a quoi pourrait ressembler un site moderne et adapte au mobile :\n{demo}\n\nSi cela vous interesse, je serais ravi de creer la version reelle. Je peux envoyer d'autres exemples ou en discuter rapidement.\n\nCordialement,\n[Votre nom]\n\nPas interesse ? Repondez simplement 'non merci'.",
+    h:{mobile:"votre site n'est pas adapte aux mobiles, alors que la plupart des recherches immobilieres se font desormais sur telephone",https:"votre site n'est pas securise (pas de HTTPS), ce que les navigateurs signalent aux visiteurs",outdated:"votre site ne semble pas avoir ete mis a jour depuis plusieurs annees",slow:"votre site se charge lentement, ce qui fait perdre des visiteurs",dated_build:"le design de votre site parait depasse face a la concurrence",generic:"un site plus moderne pourrait convertir plus de visiteurs en demandes"}},
+  es:{s:"Una idea rapida para la web de {name}",
+    b:"Hola equipo de {name},\n\ndescubri {name} mientras miraba inmobiliarias en {city}, y note que {hook}.\n\nPrepare una vista previa gratuita de como podria verse una web moderna y adaptada a moviles:\n{demo}\n\nSi les resulta util, me encantaria crear la version real. Puedo enviar mas ejemplos o hablar brevemente.\n\nUn saludo,\n[Tu nombre]\n\nNo te interesa? Responde 'no, gracias'.",
+    h:{mobile:"su web no esta adaptada a moviles, cuando la mayoria de las busquedas de inmuebles ya se hacen desde el telefono",https:"su web no es segura (sin HTTPS), algo que los navegadores muestran a los visitantes",outdated:"su web no parece haberse actualizado en varios anos",slow:"su web carga lento y pierde visitantes",dated_build:"el diseno de su web se ve anticuado frente a la competencia",generic:"una web mas moderna podria convertir mas visitantes en consultas"}},
+  it:{s:"Un'idea veloce per il sito di {name}",
+    b:"Ciao team di {name},\n\nho scoperto {name} guardando le agenzie immobiliari a {city}, e ho notato che {hook}.\n\nHo preparato un'anteprima gratuita di come potrebbe essere un sito moderno e ottimizzato per il mobile:\n{demo}\n\nSe vi e utile, sarei felice di realizzare la versione vera. Posso inviare altri esempi o sentirci brevemente.\n\nCordiali saluti,\n[Il tuo nome]\n\nNon interessati? Rispondete 'no grazie'.",
+    h:{mobile:"il vostro sito non e ottimizzato per i dispositivi mobili, mentre la maggior parte delle ricerche immobiliari avviene ormai da telefono",https:"il vostro sito non e sicuro (senza HTTPS), cosa che i browser segnalano ai visitatori",outdated:"il vostro sito non sembra aggiornato da alcuni anni",slow:"il vostro sito si carica lentamente e perde visitatori",dated_build:"il design del vostro sito appare datato rispetto ai concorrenti",generic:"un sito piu moderno potrebbe convertire piu visitatori in richieste"}},
+  nl:{s:"Een kort idee voor de website van {name}",
+    b:"Hallo team van {name},\n\nik kwam {name} tegen terwijl ik makelaars in {city} bekeek, en het viel me op dat {hook}.\n\nIk heb een gratis conceptvoorbeeld gemaakt van hoe een moderne, mobielvriendelijke website eruit zou kunnen zien:\n{demo}\n\nAls het nuttig is, maak ik graag de echte versie. Ik stuur gerust meer voorbeelden of we bellen even.\n\nMet vriendelijke groet,\n[Je naam]\n\nGeen interesse? Antwoord met 'nee bedankt'.",
+    h:{mobile:"uw website niet mobielvriendelijk is, terwijl de meeste woningzoekopdrachten nu op de telefoon gebeuren",https:"uw website niet beveiligd is (geen HTTPS), wat browsers aan bezoekers tonen",outdated:"uw website al een paar jaar niet lijkt bijgewerkt",slow:"uw website traag laadt en bezoekers verliest",dated_build:"het ontwerp van uw website verouderd oogt vergeleken met concurrenten",generic:"een modernere website meer bezoekers in aanvragen kan omzetten"}},
+  pt:{s:"Uma ideia rapida para o site da {name}",
+    b:"Ola equipa da {name},\n\ndescobri a {name} enquanto via imobiliarias em {city}, e reparei que {hook}.\n\nPreparei uma pre-visualizacao gratuita de como poderia ser um site moderno e adaptado a telemoveis:\n{demo}\n\nSe for util, teria todo o gosto em criar a versao real. Posso enviar mais exemplos ou falar rapidamente.\n\nCumprimentos,\n[O seu nome]\n\nSem interesse? Responda 'nao obrigado'.",
+    h:{mobile:"o seu site nao esta adaptado a telemoveis, quando a maioria das buscas de imoveis ja acontece no telemovel",https:"o seu site nao e seguro (sem HTTPS), algo que os navegadores mostram aos visitantes",outdated:"o seu site nao parece atualizado ha alguns anos",slow:"o seu site carrega devagar e perde visitantes",dated_build:"o design do seu site parece datado face a concorrencia",generic:"um site mais moderno poderia converter mais visitantes em contactos"}},
+};
+function draftFor(l){
+  const t = DRAFTS[l.lang] || DRAFTS.en;
+  const hook = (t.h[l.hook] || t.h.generic);
+  const fill = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{hook}/g, hook).replace(/{demo}/g, demoLink(l));
+  return { subject: fill(t.s), body: fill(t.b) };
+}
 let LEADS = [], limit = 60;
 
 async function init(){
@@ -90,11 +130,12 @@ async function init(){
   LEADS = d.leads || [];
   $("#meta").textContent = `updated ${(d.updated||"").replace("T"," ")} UTC · ${d.regions_done}/${d.regions_total} cities scanned`;
   $("#stats").innerHTML = [
-    ["total leads", d.count], ["no website (build)", d.nosite], ["has website (redesign)", d.site],
-    ["with email", d.with_email], ["countries", Object.keys(d.by_country||{}).length],
+    ["total leads", d.count], ["has website (redesign)", d.site], ["no website (build)", d.nosite],
+    ["emails found", d.with_email], ["deliverable (MX ok)", d.verified], ["campaign-ready", d.campaign],
   ].map(([l,n]) => `<div class="stat"><b>${(n||0).toLocaleString()}</b><span class="mut">${l}</span></div>`).join("");
-  $("#note").innerHTML = "Two lead types. <b>No website</b> = build-from-scratch pitch (reach them by phone or the channel they advertise on; emails are rare in open data). "
-    + "<b>Has website</b> = redesign/modernize pitch, and their site is scraped for a contact <b>email</b> so these are directly cold-emailable. Use the segment filter to switch.";
+  $("#note").innerHTML = "<b>Campaign-ready</b> leads have a deliverable email and are in a country where cold B2B email is defensible (UK, US, Ireland, Australia, Netherlands). "
+    + "Each has-website lead is scored for how much it needs a redesign, with a specific hook, a localized draft email, and a personalized demo link. "
+    + "Germany/Austria/Canada and phone-only leads are kept out of the email campaign (call or other channel).";
   const cs = Object.entries(d.by_country||{}).sort((a,b)=>b[1]-a[1]);
   $("#country").innerHTML = '<option value="">All countries</option>' + cs.map(([c,n])=>`<option value="${esc(c)}">${esc(c)} (${n})</option>`).join("");
   render();
@@ -108,6 +149,7 @@ function filtered(){
     if(c && l.country !== c) return false;
     if(has === "email" && !l.email) return false;
     if(has === "phone" && !l.phone) return false;
+    if(has === "campaign" && !l.campaign) return false;
     if(has === "channel" && !Object.keys(l.channels||{}).length) return false;
     if(has === "emailable" && !l.email && !Object.keys(l.channels||{}).length) return false;
     if(!q) return true;
@@ -122,17 +164,22 @@ function leadRow(l){
       <span class="name">${esc(l.name)}</span>
       ${l.brand && l.brand!==l.name ? `<span class="pill brand">${esc(l.brand)}</span>`:""}
       <span class="pill">${esc(l.city)}${l.country?", "+esc(l.country):""}</span>
-      <span class="pill" style="color:${l.seg==="site"?"var(--warn)":"var(--acc)"}">${l.seg==="site"?"has website · redesign":"no website · build"}</span>
-      ${l.email_src==="scraped"?`<span class="pill" style="color:var(--ok)">email scraped</span>`:""}
+      <span class="pill" style="color:${l.seg==="site"?"var(--warn)":"var(--acc)"}">${l.seg==="site"?"redesign":"build"}</span>
+      ${l.qscore?`<span class="pill" title="redesign-worthiness">score ${l.qscore}</span>`:""}
+      ${l.email_ok?`<span class="pill" style="color:var(--ok)">✓ deliverable</span>`:""}
+      ${l.campaign?`<span class="pill" style="color:var(--ok);border:1px solid var(--ok)">campaign-ready</span>`:""}
     </div>
     <div class="contacts">
       ${l.email ? `<a class="email" href="mailto:${esc(l.email)}">✉ ${esc(l.email)}</a>`:""}
       ${l.phone ? `<a class="phone" href="tel:${esc(l.phone.replace(/\s/g,''))}">☎ ${esc(l.phone)}</a>`:""}
       ${l.web ? `<a href="${esc(l.web)}" target="_blank" rel="noopener">🌐 site</a>`:""}
-      ${chans}
+      ${l.seg==="site" ? `<a href="${esc(demoLink(l))}" target="_blank" rel="noopener">🎨 demo</a>`:""}
+      ${l.email ? `<a href="#" class="draftbtn" data-id="${esc(l.id)}">✍ draft email</a>`:""}
       ${l.lat ? `<a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}#map=18/${l.lat}/${l.lon}" target="_blank" rel="noopener">📍 map</a>`:""}
+      ${chans}
     </div>
-    ${l.addr ? `<div class="addr">${esc(l.addr)}</div>`:""}</div>`;
+    ${l.addr ? `<div class="addr">${esc(l.addr)}</div>`:""}
+    <div class="draftbox" data-id="${esc(l.id)}" hidden></div></div>`;
 }
 
 function render(){
@@ -159,6 +206,33 @@ function exportCSV(){
 ["#q","#country","#has","#seg"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
 $("#more").onclick = () => { limit += 120; render(); };
 $("#csv").onclick = exportCSV;
+
+const byId = id => LEADS.find(l => l.id === id);
+$("#out").addEventListener("click", e => {
+  const d = e.target.closest(".draftbtn");
+  if(d){
+    e.preventDefault();
+    const box = document.querySelector(`.draftbox[data-id="${CSS.escape(d.dataset.id)}"]`);
+    if(!box) return;
+    if(!box.hidden){ box.hidden = true; box.innerHTML = ""; return; }
+    const l = byId(d.dataset.id); const dr = draftFor(l);
+    box.hidden = false;
+    box.innerHTML = `<div class="subj">Subject: <span class="subjtext">${esc(dr.subject)}</span> <span class="mut">(${(l.lang||"en").toUpperCase()})</span></div>
+      <textarea class="bodytext">${esc(dr.body)}</textarea>
+      <div class="acts">
+        <button class="btn p copybtn">Copy email</button>
+        <a class="btn" href="mailto:${esc(l.email)}?subject=${encodeURIComponent(dr.subject)}&body=${encodeURIComponent(dr.body)}">Open in mail app</a>
+        <a class="btn" href="${esc(demoLink(l))}" target="_blank" rel="noopener">Open demo</a>
+      </div>`;
+    return;
+  }
+  const c = e.target.closest(".copybtn");
+  if(c){
+    const box = c.closest(".draftbox");
+    const txt = "Subject: " + box.querySelector(".subjtext").textContent + "\n\n" + box.querySelector(".bodytext").value;
+    navigator.clipboard.writeText(txt).then(()=>{ c.textContent = "Copied ✓"; setTimeout(()=>c.textContent="Copy email", 1500); });
+  }
+});
 init();
 </script>
 </body>
