@@ -307,6 +307,59 @@ def prospect_fit(ld):
     ld["prospect"] = ld["fit"] >= 55
 
 
+SERP_KEY = os.environ.get("SERPAPI_KEY")  # optional: real Google results (dorking) without bot-blocks
+SEARCH_BATCH = int(os.environ.get("LS_SEARCH", "40"))
+
+
+def search_lead(lead):
+    """Dork a lead via SerpAPI Google: return (email_or_None, {channel: url}). Also finds promo socials."""
+    q = f'"{lead["name"]}" {lead.get("city","")} email OR contact'
+    try:
+        u = "https://serpapi.com/search.json?" + urllib.parse.urlencode(
+            {"engine": "google", "q": q, "num": "10", "api_key": SERP_KEY})
+        res = json.loads(http(u, timeout=20, tries=1)).get("organic_results", [])
+    except Exception:  # noqa: BLE001
+        return None, {}
+    socials = {}
+    for r in res:
+        link = r.get("link", "")
+        for net in ("facebook", "instagram", "tiktok", "youtube"):
+            if net + ".com" in link and net not in socials and net not in (lead.get("channels") or {}):
+                socials[net] = link
+    pages = [r["link"] for r in res if r.get("link")
+             and not any(p in r["link"] for p in ("facebook.com", "instagram.com", "linkedin.com", "youtube.com"))][:4]
+    for u in pages:
+        b = http(u, limit=400_000, timeout=10, tries=1)
+        if not b:
+            continue
+        found = [e for e in EMAIL_RE.findall(b.decode("utf-8", "ignore")) if _good_email(e)]
+        if found:
+            return found[0], socials
+    return None, socials
+
+
+def enrich_search(state):
+    """Optional (needs SERPAPI_KEY): find emails + promo channels for no-site / email-less leads."""
+    if not SERP_KEY:
+        return 0
+    todo = [ld for ld in state["leads"].values()
+            if not ld.get("email") and ld.get("search_src") != "tried"]
+    todo = todo[:SEARCH_BATCH]
+    if not todo:
+        return 0
+    got = 0
+    with ThreadPoolExecutor(6) as ex:
+        for ld, (em, soc) in zip(todo, ex.map(search_lead, todo)):
+            if soc:
+                ld.setdefault("channels", {}).update(soc)  # add the means they advertise
+            if em:
+                ld["email"], ld["email_src"] = em, "search"
+                got += 1
+            ld["search_src"] = "found" if em else "tried"
+    print(f"[+] dork-search: {got}/{len(todo)} emails found via SerpAPI")
+    return got
+
+
 def enrich_sites(state):
     """Batch: scrape has-website leads for email + assess site quality; verify email deliverability."""
     todo = [ld for ld in state["leads"].values()
@@ -370,6 +423,7 @@ def main():
         state["done"][region] = TODAY
 
     enrich_sites(state)  # scrape a batch of has-website leads for emails
+    enrich_search(state)  # optional Google-dork enrichment for no-site leads (needs SERPAPI_KEY)
 
     leads = list(state["leads"].values())
     for ld in leads:

@@ -19,6 +19,13 @@ but only a handful of emails. **Harvesting emails for cold outreach is Phase 2**
 - Manual: **Actions → scan-leads → Run workflow**, or `python scan.py` locally (`LS_BATCH=3 python scan.py` to scan fewer cities).
 - Add target cities by editing `regions.json` (`"City, Country"` strings).
 
+
+## Finding emails for no-website leads
+No-website businesses rarely publish an email, and automated search-engine scraping is blocked from CI. So each lead has **one-click Google dork links** (🔎 email / 🔎 socials) that open a prefilled Google search in your browser to find the email or their promo pages fast. Optionally, set a `SERPAPI_KEY` repo secret and the scanner will auto-find emails and social channels for no-site leads via the Google results API (off by default).
+
+## Demos and drafts for everyone
+Every lead, with or without a website, gets a personalized **demo** link and a localized **draft email**. No-website leads get a build-from-scratch pitch; has-website leads get a redesign pitch. No-website leads also show **promotes via** (the channels they use to advertise their listings).
+
 ## The bigger plan
 1. **This tool**: see the leads. ← you are here
 2. Email enrichment + verification.

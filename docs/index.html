@@ -119,8 +119,37 @@ const DRAFTS = {
     b:"Ola equipa da {name},\n\ndescobri a {name} enquanto via imobiliarias em {city}, e reparei que {hook}.\n\nPreparei uma pre-visualizacao gratuita de como poderia ser um site moderno e adaptado a telemoveis:\n{demo}\n\nSe for util, teria todo o gosto em criar a versao real. Posso enviar mais exemplos ou falar rapidamente.\n\nCumprimentos,\n[O seu nome]\n\nSem interesse? Responda 'nao obrigado'.",
     h:{mobile:"o seu site nao esta adaptado a telemoveis, quando a maioria das buscas de imoveis ja acontece no telemovel",https:"o seu site nao e seguro (sem HTTPS), algo que os navegadores mostram aos visitantes",outdated:"o seu site nao parece atualizado ha alguns anos",slow:"o seu site carrega devagar e perde visitantes",dated_build:"o design do seu site parece datado face a concorrencia",generic:"um site mais moderno poderia converter mais visitantes em contactos"}},
 };
+const NOSITE = {
+  en:{s:"A website for {name}?",
+    b:"Hi {name} team,\n\nI came across {name} while looking at estate agents in {city}, and noticed you don't seem to have a website yet, which means buyers searching online can't find your listings.\n\nI put together a free concept preview of a modern site built around your name:\n{demo}\n\nIf you like it, I'd love to build the real thing, listings, enquiry forms, the lot. Happy to send more examples or have a quick chat.\n\nBest,\n[Your Name]\n\nNot interested? Just reply 'no thanks'."},
+  de:{s:"Eine Website fuer {name}?",
+    b:"Hallo Team von {name},\n\nich bin auf {name} gestossen, als ich mir Immobilienmakler in {city} angesehen habe, und mir ist aufgefallen, dass Sie scheinbar noch keine Website haben, wodurch Kaeufer Ihre Angebote online nicht finden.\n\nIch habe eine kostenlose Konzeptvorschau einer modernen Website fuer Sie erstellt:\n{demo}\n\nWenn es Ihnen gefaellt, wuerde ich die echte Seite gerne umsetzen. Ich sende gern weitere Beispiele oder wir sprechen kurz.\n\nBeste Gruesse,\n[Ihr Name]\n\nKein Interesse? Antworten Sie einfach mit 'nein danke'."},
+  fr:{s:"Un site web pour {name} ?",
+    b:"Bonjour l'equipe de {name},\n\nj'ai decouvert {name} en regardant les agences immobilieres a {city}, et j'ai remarque que vous ne semblez pas encore avoir de site web, ce qui empeche les acheteurs de trouver vos annonces en ligne.\n\nJ'ai prepare un apercu gratuit d'un site moderne concu pour vous :\n{demo}\n\nSi cela vous plait, je serais ravi de creer la version reelle. Je peux envoyer d'autres exemples ou en discuter rapidement.\n\nCordialement,\n[Votre nom]\n\nPas interesse ? Repondez simplement 'non merci'."},
+  es:{s:"Una web para {name}?",
+    b:"Hola equipo de {name},\n\ndescubri {name} mientras miraba inmobiliarias en {city}, y note que parece que aun no tienen web, lo que impide que los compradores encuentren sus propiedades en internet.\n\nPrepare una vista previa gratuita de una web moderna pensada para ustedes:\n{demo}\n\nSi les gusta, me encantaria crear la version real. Puedo enviar mas ejemplos o hablar brevemente.\n\nUn saludo,\n[Tu nombre]\n\nNo te interesa? Responde 'no, gracias'."},
+  it:{s:"Un sito web per {name}?",
+    b:"Ciao team di {name},\n\nho scoperto {name} guardando le agenzie immobiliari a {city}, e ho notato che non sembra abbiate ancora un sito web, cosa che impedisce agli acquirenti di trovare i vostri annunci online.\n\nHo preparato un'anteprima gratuita di un sito moderno pensato per voi:\n{demo}\n\nSe vi piace, sarei felice di realizzare la versione vera. Posso inviare altri esempi o sentirci brevemente.\n\nCordiali saluti,\n[Il tuo nome]\n\nNon interessati? Rispondete 'no grazie'."},
+  nl:{s:"Een website voor {name}?",
+    b:"Hallo team van {name},\n\nik kwam {name} tegen terwijl ik makelaars in {city} bekeek, en het viel me op dat u nog geen website lijkt te hebben, waardoor kopers uw aanbod online niet kunnen vinden.\n\nIk heb een gratis conceptvoorbeeld gemaakt van een moderne website voor u:\n{demo}\n\nAls het u bevalt, maak ik graag de echte versie. Ik stuur gerust meer voorbeelden of we bellen even.\n\nMet vriendelijke groet,\n[Je naam]\n\nGeen interesse? Antwoord met 'nee bedankt'."},
+  pt:{s:"Um site para a {name}?",
+    b:"Ola equipa da {name},\n\ndescobri a {name} enquanto via imobiliarias em {city}, e reparei que ainda nao parece ter um site, o que impede os compradores de encontrarem os seus imoveis online.\n\nPreparei uma pre-visualizacao gratuita de um site moderno pensado para si:\n{demo}\n\nSe gostar, teria todo o gosto em criar a versao real. Posso enviar mais exemplos ou falar rapidamente.\n\nCumprimentos,\n[O seu nome]\n\nSem interesse? Responda 'nao obrigado'."},
+};
+function dork(l, kind){
+  const n = `"${l.name}"`, c = l.city || "";
+  const q = kind==="email" ? `${n} ${c} email OR contact`
+    : kind==="social" ? `${n} ${c} facebook OR instagram`
+    : `${n} ${c} property OR listings`;
+  return "https://www.google.com/search?q=" + encodeURIComponent(q);
+}
 function draftFor(l){
-  const t = DRAFTS[l.lang] || DRAFTS.en;
+  const lang = DRAFTS[l.lang] ? l.lang : "en";
+  if(l.seg === "nosite"){
+    const nt = NOSITE[lang] || NOSITE.en;
+    const f = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{demo}/g, demoLink(l));
+    return { subject: f(nt.s), body: f(nt.b) };
+  }
+  const t = DRAFTS[lang] || DRAFTS.en;
   const hook = (t.h[l.hook] || t.h.generic);
   const fill = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{hook}/g, hook).replace(/{demo}/g, demoLink(l));
   return { subject: fill(t.s), body: fill(t.b) };
@@ -176,13 +205,16 @@ function leadRow(l){
       ${l.email_ok?`<span class="pill" style="color:var(--ok)">✓ deliverable</span>`:""}
       ${l.campaign?`<span class="pill" style="color:var(--ok);border:1px solid var(--ok)">campaign-ready</span>`:""}
     </div>
+    ${l.seg==="nosite" && Object.keys(l.channels||{}).length ? `<div class="weak"><span class="mut">promotes via:</span>${Object.keys(l.channels).map(k=>`<span class="wchip ok">${k}</span>`).join("")}</div>`:""}
     ${l.seg==="site" && l.issues ? `<div class="weak"><span class="mut">site weaknesses:</span>${(l.issues.length===1&&l.issues[0]==="generic")?`<span class="wchip ok">Modern enough, sell an upgrade</span>`:l.issues.map(i=>`<span class="wchip">${ISSUE[i]||i}</span>`).join("")}</div>`:""}
     <div class="contacts">
       ${l.email ? `<a class="email" href="mailto:${esc(l.email)}">✉ ${esc(l.email)}</a>`:""}
       ${l.phone ? `<a class="phone" href="tel:${esc(l.phone.replace(/\s/g,''))}">☎ ${esc(l.phone)}</a>`:""}
       ${l.web ? `<a href="${esc(l.web)}" target="_blank" rel="noopener">🌐 site</a>`:""}
-      ${l.seg==="site" ? `<a href="${esc(demoLink(l))}" target="_blank" rel="noopener">🎨 demo</a>`:""}
-      ${l.email ? `<a href="#" class="draftbtn" data-id="${esc(l.id)}">✍ draft email</a>`:""}
+      <a href="${esc(demoLink(l))}" target="_blank" rel="noopener">🎨 demo</a>
+      <a href="#" class="draftbtn" data-id="${esc(l.id)}">✍ draft</a>
+      ${!l.email ? `<a href="${dork(l,'email')}" target="_blank" rel="noopener" title="find their email on Google">🔎 email</a>`:""}
+      <a href="${dork(l,'social')}" target="_blank" rel="noopener" title="find their socials on Google">🔎 socials</a>
       ${l.lat ? `<a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}#map=18/${l.lat}/${l.lon}" target="_blank" rel="noopener">📍 map</a>`:""}
       ${chans}
     </div>
@@ -229,7 +261,7 @@ $("#out").addEventListener("click", e => {
       <textarea class="bodytext">${esc(dr.body)}</textarea>
       <div class="acts">
         <button class="btn p copybtn">Copy email</button>
-        <a class="btn" href="mailto:${esc(l.email)}?subject=${encodeURIComponent(dr.subject)}&body=${encodeURIComponent(dr.body)}">Open in mail app</a>
+        ${l.email?`<a class="btn" href="mailto:${esc(l.email)}?subject=${encodeURIComponent(dr.subject)}&body=${encodeURIComponent(dr.body)}">Open in mail app</a>`:`<a class="btn" href="${dork(l,'email')}" target="_blank" rel="noopener">Find their email</a>`}
         <a class="btn" href="${esc(demoLink(l))}" target="_blank" rel="noopener">Open demo</a>
       </div>`;
     return;
