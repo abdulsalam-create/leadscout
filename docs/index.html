@@ -69,6 +69,7 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
     <option value="channel">Has a social channel</option>
     <option value="emailable">Email or a channel</option>
   </select>
+  <label class="ck"><input type="checkbox" id="eng" checked> English-speaking only</label>
   <label class="ck"><input type="checkbox" id="best" checked> Best-fit prospects only</label>
   <button class="btn p" id="csv">Export CSV</button>
 </div>
@@ -91,9 +92,9 @@ const CH_URL = {
   telegram: v => v.startsWith("http") ? v : "https://t.me/" + v.replace(/^@/, ""),
 };
 function demoLink(l){
-  const base = location.origin + location.pathname.replace(/[^/]*$/, "") + "demo.html";
-  const q = new URLSearchParams({ name: l.name || "", city: l.city || "", phone: l.phone || "", addr: l.addr || "" });
-  return base + "?" + q.toString();
+  const d = {name:l.name||"", city:l.city||"", phone:l.phone||"", addr:l.addr||"", country:l.country||""};
+  const tok = btoa(unescape(encodeURIComponent(JSON.stringify(d)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  return "https://abdulsalam-create.github.io/preview-studio/?d=" + tok;
 }
 // Localized cold-email templates. {name} {city} {hook} {demo} are filled per lead. Each ends with an opt-out line.
 const DRAFTS = {
@@ -142,16 +143,25 @@ function dork(l, kind){
     : `${n} ${c} property OR listings`;
   return "https://www.google.com/search?q=" + encodeURIComponent(q);
 }
+const AILINE = {
+  en:"It even includes a built-in AI assistant that answers visitors and captures leads for you 24/7.",
+  de:"Sie enthaelt sogar einen integrierten KI-Assistenten, der Besucher beantwortet und rund um die Uhr Anfragen fuer Sie erfasst.",
+  fr:"Il inclut meme un assistant IA integre qui repond aux visiteurs et capte des prospects pour vous 24h/24.",
+  es:"Incluso incluye un asistente de IA integrado que responde a los visitantes y capta clientes potenciales las 24 horas.",
+  it:"Include persino un assistente AI integrato che risponde ai visitatori e raccoglie contatti per te 24 ore su 24.",
+  nl:"Het bevat zelfs een ingebouwde AI-assistent die bezoekers te woord staat en 24/7 leads voor u vastlegt.",
+  pt:"Inclui ate um assistente de IA integrado que responde aos visitantes e capta contactos para si 24 horas por dia.",
+};
 function draftFor(l){
   const lang = DRAFTS[l.lang] ? l.lang : "en";
   if(l.seg === "nosite"){
     const nt = NOSITE[lang] || NOSITE.en;
-    const f = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{demo}/g, demoLink(l));
+    const f = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{demo}/g, demoLink(l) + "\n\n" + (AILINE[lang]||AILINE.en));
     return { subject: f(nt.s), body: f(nt.b) };
   }
   const t = DRAFTS[lang] || DRAFTS.en;
   const hook = (t.h[l.hook] || t.h.generic);
-  const fill = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{hook}/g, hook).replace(/{demo}/g, demoLink(l));
+  const fill = str => str.replace(/{name}/g, l.name).replace(/{city}/g, l.city||"your area").replace(/{hook}/g, hook).replace(/{demo}/g, demoLink(l) + "\n\n" + (AILINE[lang]||AILINE.en));
   return { subject: fill(t.s), body: fill(t.b) };
 }
 let LEADS = [], limit = 60;
@@ -175,8 +185,10 @@ async function init(){
 
 function filtered(){
   const q = $("#q").value.trim().toLowerCase(), c = $("#country").value, has = $("#has").value;
-  const seg = $("#seg").value, best = $("#best").checked;
+  const seg = $("#seg").value, best = $("#best").checked, eng = $("#eng").checked;
+  const ENG = new Set(["United Kingdom","USA","Ireland","Australia","Canada"]);
   return LEADS.filter(l => {
+    if(eng && !ENG.has(l.country)) return false;
     if(best && !l.prospect) return false;
     if(seg && (l.seg||"nosite") !== seg) return false;
     if(c && l.country !== c) return false;
@@ -243,7 +255,7 @@ function exportCSV(){
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-["#q","#country","#has","#seg","#best"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
+["#q","#country","#has","#seg","#best","#eng"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
 $("#more").onclick = () => { limit += 120; render(); };
 $("#csv").onclick = exportCSV;
 
