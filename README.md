@@ -26,6 +26,14 @@ No-website businesses rarely publish an email, and automated search-engine scrap
 ## Demos and drafts for everyone
 Every lead, with or without a website, gets a personalized **demo** link and a localized **draft email**. No-website leads get a build-from-scratch pitch; has-website leads get a redesign pitch. No-website leads also show **promotes via** (the channels they use to advertise their listings).
 
+
+## Sectors
+Beyond real estate, the scanner now covers **trades, beauty & wellness, fitness, auto, and events/photo** businesses (from OSM tags), each tagged with its sector and filterable on the dashboard. Leads assessed as having an **already-professional website are removed** automatically, so the list only holds real prospects (no website, or a weak/DIY site).
+
+## Newly-formed businesses & richer sources
+- **Companies House (UK, free):** set a `CH_API_KEY` repo secret and the scanner pulls **newly-incorporated** UK businesses (real estate, trades, beauty, etc.) as first-mover leads, flagged 🆕 with their founding date. These are prime targets: brand-new, no site yet.
+- **Apollo / B2B databases:** for contacts *with emails* at scale (the legal, usable alternative to LinkedIn scraping), export a filtered CSV from Apollo.io and it can be imported into this pipeline. LinkedIn scraping is intentionally not used (against their terms, needs login, gets accounts banned, and yields no emails).
+
 ## The bigger plan
 1. **This tool**: see the leads. ← you are here
 2. Email enrichment + verification.

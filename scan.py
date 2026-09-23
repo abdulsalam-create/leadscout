@@ -62,15 +62,38 @@ def bbox(region):
         return None
 
 
+SECTORS = ["real_estate", "trades", "beauty", "fitness", "auto", "events"]
+
+
+def sector_of(t):
+    if t.get("office") in ("estate_agent", "property_management") or t.get("shop") == "estate_agent":
+        return "real_estate"
+    if t.get("craft") in ("plumber", "electrician", "carpenter", "roofer", "painter", "builder",
+                          "plasterer", "tiler", "scaffolder", "gardener", "stonemason", "glazier", "hvac"):
+        return "trades"
+    if t.get("shop") in ("hairdresser", "beauty", "nails", "massage", "tattoo", "cosmetics") or t.get("leisure") == "spa":
+        return "beauty"
+    if t.get("leisure") == "fitness_centre" or t.get("sport") == "fitness" or t.get("shop") == "sports":
+        return "fitness"
+    if t.get("shop") in ("car_repair", "tyres", "car_parts"):
+        return "auto"
+    if t.get("craft") == "photographer" or t.get("shop") in ("photo", "florist"):
+        return "events"
+    return "other"
+
+
 def overpass(s, w, n, e):
-    q = f"""[out:json][timeout:150];
+    bb = f"({s},{w},{n},{e})"
+    q = f"""[out:json][timeout:180];
 (
- nwr["office"="estate_agent"]({s},{w},{n},{e});
- nwr["shop"="estate_agent"]({s},{w},{n},{e});
- nwr["office"="property_management"]({s},{w},{n},{e});
+ nwr["office"~"estate_agent|property_management"]{bb};
+ nwr["shop"~"estate_agent|hairdresser|beauty|nails|massage|tattoo|cosmetics|car_repair|tyres|car_parts|photo|florist|sports"]{bb};
+ nwr["craft"~"plumber|electrician|carpenter|roofer|painter|builder|plasterer|tiler|scaffolder|gardener|stonemason|glazier|hvac|photographer"]{bb};
+ nwr["leisure"~"fitness_centre|spa"]{bb};
+ nwr["sport"="fitness"]{bb};
 );
 out center tags;"""
-    body = http(OVERPASS, data=urllib.parse.urlencode({"data": q}).encode(), timeout=180)
+    body = http(OVERPASS, data=urllib.parse.urlencode({"data": q}).encode(), timeout=200)
     try:
         return json.loads(body).get("elements", [])
     except Exception:  # noqa: BLE001
@@ -112,6 +135,9 @@ def to_lead(el, region, country):
     name = first(t, "name", "brand", "operator")
     if not name:
         return None
+    sector = sector_of(t)
+    if sector == "other":
+        return None
     website = first(t, "website", "contact:website", "url")
     social_site = website and any(s in _host(website) for s in SOCIAL_HOSTS)
     seg = "site" if (website and not social_site) else "nosite"   # site=has real website (redesign), nosite=build
@@ -132,6 +158,7 @@ def to_lead(el, region, country):
     return {
         "id": f"{el['type']}/{el['id']}",
         "name": name,
+        "sector": sector,
         "brand": first(t, "brand", "operator"),
         "seg": seg,
         "web": website if seg == "site" else "",
@@ -370,9 +397,13 @@ def enrich_sites(state):
     got = 0
     with ThreadPoolExecutor(10) as ex:
         results = list(ex.map(lambda l: (l, *assess_site(l["web"])), todo))
+    drop = []
     for ld, email, sig in results:
         score, hook, issues = site_score(sig)
         ld["qscore"], ld["hook"], ld["issues"] = score, hook, issues
+        if sig.get("reached") and set(issues) <= {"generic"}:
+            drop.append(ld["id"])  # already a professional site: not a prospect, remove it
+            continue
         ld["lang"] = LANG.get(ld["country"], "en")
         if email and not ld.get("email"):
             ld["email"], ld["email_src"] = email, "scraped"
@@ -382,8 +413,10 @@ def enrich_sites(state):
         # deliverability + campaign eligibility
         ld["email_ok"] = bool(ld.get("email")) and has_mx(ld["email"])
         ld["campaign"] = bool(ld["email_ok"] and ld["country"] in CAMPAIGN_OK)
-    print(f"[+] assessed {len(todo)} sites | {got} new emails | "
-          f"{sum(1 for l,_ ,_ in results if l.get('campaign'))} campaign-ready")
+    for i in drop:
+        state.setdefault("dropped", {})[i] = TODAY
+        state["leads"].pop(i, None)
+    print(f"[+] assessed {len(todo)} sites | {got} new emails | dropped {len(drop)} professional sites")
     return got
 
 
@@ -400,12 +433,58 @@ def scan_region(region):
     return leads
 
 
+CH_KEY = os.environ.get("CH_API_KEY")  # optional free key: newly incorporated UK businesses
+CH_SIC = {"68310": "real_estate", "68320": "real_estate", "68100": "real_estate",
+          "68209": "real_estate", "43210": "trades", "43220": "trades", "96020": "beauty",
+          "93130": "fitness", "45200": "auto", "74201": "events"}
+
+
+def companies_house(state):
+    """Optional (needs CH_API_KEY): pull newly-incorporated UK businesses as fresh, first-mover leads."""
+    if not CH_KEY:
+        return 0
+    import base64
+    auth = "Basic " + base64.b64encode((CH_KEY + ":").encode()).decode()
+    frm = _days_ago(45)
+    added = 0
+    for sic, sector in CH_SIC.items():
+        try:
+            url = ("https://api.company-information.service.gov.uk/advanced-search/companies?"
+                   + urllib.parse.urlencode({"sic_codes": sic, "company_status": "active",
+                                             "incorporated_from": frm, "size": "100"}))
+            req = urllib.request.Request(url, headers=dict(UA, Authorization=auth))
+            with urllib.request.urlopen(req, timeout=30, context=CTX) as r:
+                items = json.loads(r.read()).get("items", [])
+        except Exception as e:  # noqa: BLE001
+            print(f"[!] companies house {sic}: {e}")
+            continue
+        for c in items:
+            num = c.get("company_number")
+            k = f"ch:{num}"
+            if not num or k in state["leads"] or k in state.get("dropped", {}):
+                continue
+            a = c.get("registered_office_address", {})
+            addr = ", ".join(x for x in (a.get("address_line_1"), a.get("locality"), a.get("postal_code")) if x)
+            state["leads"][k] = {
+                "id": k, "name": (c.get("company_name") or "").title(), "brand": "", "sector": sector,
+                "seg": "nosite", "web": "", "email": "", "email_src": "", "phone": "",
+                "region": a.get("locality") or "UK", "country": "United Kingdom",
+                "city": (a.get("locality") or "").title(), "addr": addr, "channels": {},
+                "lat": None, "lon": None, "first": TODAY,
+                "new": True, "founded": c.get("date_of_creation", ""),
+            }
+            added += 1
+        time.sleep(1)
+    print(f"[+] Companies House: {added} newly-incorporated businesses")
+    return added
+
+
 def main():
     regions = load(REGIONS, [])
     if not regions:
         raise SystemExit("regions.json is empty")
     state = load(STATE, {"leads": {}, "offset": 0, "done": {}})
-    state.setdefault("leads", {}); state.setdefault("offset", 0); state.setdefault("done", {})
+    state.setdefault("leads", {}); state.setdefault("offset", 0); state.setdefault("done", {}); state.setdefault("dropped", {})
 
     off = state["offset"] % len(regions)
     batch = regions[off:off + BATCH] or regions[:BATCH]
@@ -415,6 +494,8 @@ def main():
     new_count = 0
     for region in batch:
         for ld in scan_region(region):
+            if ld["id"] in state["dropped"]:
+                continue  # previously assessed as a professional site
             old = state["leads"].get(ld["id"])
             ld["first"] = old["first"] if old else ld["first"]
             if not old:
@@ -422,6 +503,7 @@ def main():
             state["leads"][ld["id"]] = ld
         state["done"][region] = TODAY
 
+    companies_house(state)  # optional: newly-incorporated UK businesses (needs CH_API_KEY)
     enrich_sites(state)  # scrape a batch of has-website leads for emails
     enrich_search(state)  # optional Google-dork enrichment for no-site leads (needs SERPAPI_KEY)
 
@@ -441,6 +523,7 @@ def main():
         "verified": sum(1 for x in leads if x.get("email_ok")),
         "campaign": sum(1 for x in leads if x.get("campaign")),
         "prospects": sum(1 for x in leads if x.get("prospect")),
+        "by_sector": {sec: sum(1 for x in leads if x.get("sector") == sec) for sec in SECTORS},
         "with_channel": sum(1 for x in leads if x["channels"]),
         "by_country": by_country,
         "regions_done": len(state["done"]),

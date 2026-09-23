@@ -60,6 +60,7 @@ label.ck{color:var(--mut);display:inline-flex;gap:5px;align-items:center}
 <div class="bar">
   <input type="search" id="q" placeholder="Search name, city, brand, phone, email…">
   <select id="country"><option value="">All countries</option></select>
+  <select id="sector"><option value="">All sectors</option></select>
   <select id="seg"><option value="">Both segments</option><option value="nosite">No website (build)</option><option value="site">Has website (redesign)</option></select>
   <select id="has">
     <option value="">Any contact</option>
@@ -180,6 +181,9 @@ async function init(){
     + "Established brands and agencies with solid professional sites are pushed to the bottom. Turn on <b>Best-fit prospects only</b> to hide the rest.";
   const cs = Object.entries(d.by_country||{}).sort((a,b)=>b[1]-a[1]);
   $("#country").innerHTML = '<option value="">All countries</option>' + cs.map(([c,n])=>`<option value="${esc(c)}">${esc(c)} (${n})</option>`).join("");
+  const SL = {real_estate:"Real estate", trades:"Trades", beauty:"Beauty & wellness", fitness:"Fitness", auto:"Auto", events:"Events & photo"};
+  const secs = Object.entries(d.by_sector||{}).filter(([k,n])=>n>0).sort((a,b)=>b[1]-a[1]);
+  $("#sector").innerHTML = '<option value="">All sectors</option>' + secs.map(([k,n])=>`<option value="${k}">${SL[k]||k} (${n})</option>`).join("");
   render();
 }
 
@@ -189,6 +193,7 @@ function filtered(){
   const ENG = new Set(["United Kingdom","USA","Ireland","Australia","Canada"]);
   return LEADS.filter(l => {
     if(eng && !ENG.has(l.country)) return false;
+    if($("#sector").value && l.sector !== $("#sector").value) return false;
     if(best && !l.prospect) return false;
     if(seg && (l.seg||"nosite") !== seg) return false;
     if(c && l.country !== c) return false;
@@ -211,6 +216,8 @@ function leadRow(l){
       <span class="name">${esc(l.name)}</span>
       ${l.brand && l.brand!==l.name ? `<span class="pill brand">${esc(l.brand)}</span>`:""}
       <span class="pill">${esc(l.city)}${l.country?", "+esc(l.country):""}</span>
+      ${l.new?`<span class="pill" style="color:var(--ok);border:1px solid var(--ok)" title="recently incorporated${l.founded?": "+l.founded:""}">🆕 new business</span>`:""}
+      ${l.sector?`<span class="pill" style="color:var(--acc)">${({real_estate:"real estate",trades:"trades",beauty:"beauty",fitness:"fitness",auto:"auto",events:"events"}[l.sector])||l.sector}</span>`:""}
       ${l.fit!=null?`<span class="pill" style="color:${l.fit>=70?"var(--ok)":l.fit>=55?"var(--acc)":"var(--mut)"};border:1px solid ${l.fit>=55?"currentColor":"var(--line)"}" title="prospect fit: ${(l.fit_why||[]).join(', ')}">fit ${l.fit}</span>`:""}
       <span class="pill" style="color:${l.seg==="site"?"var(--warn)":"var(--acc)"}">${l.seg==="site"?"redesign":"build"}</span>
       ${l.qscore?`<span class="pill" title="redesign-worthiness">score ${l.qscore}</span>`:""}
@@ -244,9 +251,9 @@ function render(){
 
 function exportCSV(){
   const rows = filtered();
-  const cols = ["fit","fit_reasons","name","brand","segment","email","email_source","phone","website","city","country","addr","channels","map"];
+  const cols = ["fit","fit_reasons","sector","name","brand","segment","email","email_source","phone","website","city","country","addr","channels","map"];
   const line = a => a.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(",");
-  const body = rows.map(l => line([l.fit, (l.fit_why||[]).join("; "), l.name, l.brand, l.seg, l.email, l.email_src, l.phone, l.web, l.city, l.country, l.addr,
+  const body = rows.map(l => line([l.fit, (l.fit_why||[]).join("; "), l.sector, l.name, l.brand, l.seg, l.email, l.email_src, l.phone, l.web, l.city, l.country, l.addr,
     Object.entries(l.channels||{}).map(([k,v])=>k+":"+v).join(" | "),
     l.lat?`https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}`:""]));
   const csv = [line(cols), ...body].join("\n");
@@ -255,7 +262,7 @@ function exportCSV(){
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-["#q","#country","#has","#seg","#best","#eng"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
+["#q","#country","#sector","#has","#seg","#best","#eng"].forEach(s => $(s).addEventListener("input", () => { limit = 60; render(); }));
 $("#more").onclick = () => { limit += 120; render(); };
 $("#csv").onclick = exportCSV;
 
