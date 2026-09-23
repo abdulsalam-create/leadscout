@@ -93,7 +93,7 @@ const CH_URL = {
   telegram: v => v.startsWith("http") ? v : "https://t.me/" + v.replace(/^@/, ""),
 };
 function demoLink(l){
-  const d = {name:l.name||"", city:l.city||"", phone:l.phone||"", addr:l.addr||"", country:l.country||""};
+  const d = {name:l.name||"", city:l.city||"", phone:l.phone||"", addr:l.addr||"", country:l.country||"", sector:l.sector||"real_estate"};
   const tok = btoa(unescape(encodeURIComponent(JSON.stringify(d)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   return "https://abdulsalam-create.github.io/preview-studio/?d=" + tok;
 }
